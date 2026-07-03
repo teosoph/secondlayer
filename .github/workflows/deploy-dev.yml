@@ -1,7 +1,7 @@
 ##############################################################################
-# Pipeline: Deploy to Dev (GCP)
-# - Builds and tests changed services
-# - Deploys to GCP dev VM (secondlayer-dev-vm, 34.116.251.221) via SSH
+# Pipeline: Deploy to Dev (GCP, self-hosted runner)
+# - Builds and tests changed services on GitHub-hosted runner
+# - Deploys locally on the dev VM via self-hosted runner (label: dev-vm)
 # - Dev VM uses docker-compose.local.yml + docker-compose.dev-vm.yml override
 #   (reduced resource limits for e2-standard-4; prod Qdrant/Neo4j via WG tunnel)
 # - Triggered on push/merge to dev branch or manually
@@ -27,8 +27,6 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  DEV_HOST: 34.116.251.221
-  DEV_USER: igor
   DEPLOY_DIR: /home/igor/secondlayer
 
 jobs:
@@ -143,10 +141,10 @@ jobs:
         env:
           NODE_OPTIONS: --max-old-space-size=8192
 
-  # ─── Step 3: Deploy to dev VM ────────────────────────────────────────
+  # ─── Step 3: Deploy on dev VM (self-hosted runner) ───────────────────
   deploy-dev:
     name: Deploy to Dev
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, dev-vm]
     needs: [detect-changes, build-and-test]
     if: |
       always() &&
@@ -158,17 +156,6 @@ jobs:
       FRONTEND_CHANGED: ${{ needs.detect-changes.outputs.frontend }}
       SHARED_CHANGED: ${{ needs.detect-changes.outputs.shared }}
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup SSH
-        env:
-          DEV_SSH_KEY: ${{ secrets.DEV_SSH_KEY }}
-        run: |
-          mkdir -p ~/.ssh
-          echo "$DEV_SSH_KEY" > ~/.ssh/dev_key
-          chmod 600 ~/.ssh/dev_key
-          ssh-keyscan -H ${{ env.DEV_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
-
       - name: Resolve services to deploy
         id: services
         run: |
@@ -184,118 +171,113 @@ jobs:
             echo "list=${SERVICES:-backend,frontend}" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Deploy via SSH
+      - name: Sync code
+        run: |
+          cd "$DEPLOY_DIR"
+          git fetch origin
+          git checkout "$GITHUB_SHA" --force 2>/dev/null || {
+            # SHA may live only in the fork (deploys from teosoph/secondlayer dev branch)
+            git remote get-url fork >/dev/null 2>&1 || git remote add fork https://github.com/teosoph/secondlayer.git
+            git fetch fork
+            git checkout "$GITHUB_SHA" --force
+          }
+
+      - name: Build TypeScript
         env:
           SERVICES: ${{ steps.services.outputs.list }}
-          CORE_REPO_SSH_KEY: ${{ secrets.CORE_REPO_SSH_KEY }}
         run: |
-          SSH_CMD="ssh -i ~/.ssh/dev_key -o StrictHostKeyChecking=accept-new ${{ env.DEV_USER }}@${{ env.DEV_HOST }}"
-
-          # Sync code to dev VM
-          $SSH_CMD "cd ${{ env.DEPLOY_DIR }} && git fetch origin && git checkout ${GITHUB_SHA} --force"
-
-          # Build TypeScript on dev VM (Dockerfiles require pre-built dist/)
-          $SSH_CMD bash -s -- "$SERVICES" <<'BUILD_EOF'
-            set -euo pipefail
-            SERVICES="$1"
-            cd /home/igor/secondlayer
-            npm --prefix packages/shared install --legacy-peer-deps && npm --prefix packages/shared run build
-            if echo "$SERVICES" | grep -q "backend"; then
-              npm --prefix mcp_backend install
-            fi
-            if echo "$SERVICES" | grep -q "rada"; then
-              npm --prefix mcp_rada install && npm --prefix mcp_rada run build
-            fi
-            if echo "$SERVICES" | grep -q "openreyestr"; then
-              npm --prefix mcp_openreyestr install && npm --prefix mcp_openreyestr run build
-            fi
-          BUILD_EOF
-
-          # Overlay proprietary source if backend is being deployed
-          # (backend build runs AFTER overlay — core modules are required to compile)
+          cd "$DEPLOY_DIR"
+          npm --prefix packages/shared install --legacy-peer-deps && npm --prefix packages/shared run build
           if echo "$SERVICES" | grep -q "backend"; then
-            KEY_FILE=$(mktemp)
-            trap 'shred -u "$KEY_FILE" 2>/dev/null || rm -f "$KEY_FILE"' EXIT
-            printf '%s\n' "$CORE_REPO_SSH_KEY" > "$KEY_FILE"
-            chmod 600 "$KEY_FILE"
-            scp -i ~/.ssh/dev_key -o StrictHostKeyChecking=accept-new "$KEY_FILE" ${{ env.DEV_USER }}@${{ env.DEV_HOST }}:/tmp/core_key
-            $SSH_CMD bash -s <<'OVERLAY_EOF'
-              set -euo pipefail
-              KEY_FILE=/tmp/core_key
-              chmod 600 "$KEY_FILE"
-              CORE_TMP=$(mktemp -d)
-              trap 'shred -u "$KEY_FILE" 2>/dev/null; rm -rf "$CORE_TMP"' EXIT
-              GIT_SSH_COMMAND="ssh -i $KEY_FILE -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes" \
-                git clone --depth 1 git@github.com:overthelex/secondlayer-core.git "$CORE_TMP"
-              test -s "$CORE_TMP/src/services/chat-execution-loop.ts" && test -s "$CORE_TMP/src/prompts/chat-system-prompt.ts" \
-                || { echo "core clone incomplete — key files missing"; exit 1; }
-              find "$CORE_TMP"/src/services -maxdepth 1 -name '*.ts' -exec cp -f {} /home/igor/secondlayer/mcp_backend/src/services/ \;
-              cp -rf "$CORE_TMP"/src/prompts/* /home/igor/secondlayer/mcp_backend/src/prompts/
-              test -s /home/igor/secondlayer/mcp_backend/src/services/chat-execution-loop.ts \
-                && test -s /home/igor/secondlayer/mcp_backend/src/prompts/chat-system-prompt.ts \
-                || { echo "core overlay failed — key files missing after copy"; exit 1; }
-              cd /home/igor/secondlayer && npm --prefix mcp_backend run build
-          OVERLAY_EOF
+            npm --prefix mcp_backend install
+          fi
+          if echo "$SERVICES" | grep -q "rada"; then
+            npm --prefix mcp_rada install && npm --prefix mcp_rada run build
+          fi
+          if echo "$SERVICES" | grep -q "openreyestr"; then
+            npm --prefix mcp_openreyestr install && npm --prefix mcp_openreyestr run build
           fi
 
-          # Build and deploy Docker services
-          $SSH_CMD bash -s -- "$SERVICES" <<'DEPLOY_EOF'
-            set -uo pipefail
-            SERVICES="$1"
-            cd /home/igor/secondlayer/deployment
-            DC="docker compose -f docker-compose.local.yml -f docker-compose.dev-vm.yml --env-file .env.local"
+      - name: Overlay proprietary source and build backend
+        if: contains(steps.services.outputs.list, 'backend')
+        env:
+          CORE_REPO_SSH_KEY: ${{ secrets.CORE_REPO_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          KEY_FILE=$(mktemp)
+          CORE_TMP=$(mktemp -d)
+          trap 'shred -u "$KEY_FILE" 2>/dev/null || rm -f "$KEY_FILE"; rm -rf "$CORE_TMP"' EXIT
+          printf '%s\n' "$CORE_REPO_SSH_KEY" > "$KEY_FILE"
+          chmod 600 "$KEY_FILE"
+          GIT_SSH_COMMAND="ssh -i $KEY_FILE -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes" \
+            git clone --depth 1 git@github.com:overthelex/secondlayer-core.git "$CORE_TMP"
+          test -s "$CORE_TMP/src/services/chat-execution-loop.ts" && test -s "$CORE_TMP/src/prompts/chat-system-prompt.ts" \
+            || { echo "core clone incomplete — key files missing"; exit 1; }
+          find "$CORE_TMP"/src/services -maxdepth 1 -name '*.ts' -exec cp -f {} "$DEPLOY_DIR"/mcp_backend/src/services/ \;
+          cp -rf "$CORE_TMP"/src/prompts/* "$DEPLOY_DIR"/mcp_backend/src/prompts/
+          test -s "$DEPLOY_DIR"/mcp_backend/src/services/chat-execution-loop.ts \
+            && test -s "$DEPLOY_DIR"/mcp_backend/src/prompts/chat-system-prompt.ts \
+            || { echo "core overlay failed — key files missing after copy"; exit 1; }
+          cd "$DEPLOY_DIR" && npm --prefix mcp_backend run build
 
-            STOP="" BUILD="" START=""
+      - name: Build and deploy Docker services
+        env:
+          SERVICES: ${{ steps.services.outputs.list }}
+        run: |
+          set -uo pipefail
+          cd "$DEPLOY_DIR/deployment"
+          DC="docker compose -f docker-compose.local.yml -f docker-compose.dev-vm.yml --env-file .env.local"
 
-            if echo "$SERVICES" | grep -q "backend"; then
-              STOP="$STOP app-local document-service-local"
-              BUILD="$BUILD app-local document-service-local migrate-local"
-              START="$START app-local document-service-local"
-            fi
-            if echo "$SERVICES" | grep -q "rada"; then
-              STOP="$STOP rada-mcp-app-local"
-              BUILD="$BUILD rada-mcp-app-local rada-db-init-local rada-migrate-local"
-              START="$START rada-mcp-app-local"
-            fi
-            if echo "$SERVICES" | grep -q "openreyestr"; then
-              STOP="$STOP app-openreyestr-local"
-              BUILD="$BUILD app-openreyestr-local migrate-openreyestr-local"
-              START="$START app-openreyestr-local"
-            fi
-            if echo "$SERVICES" | grep -q "frontend"; then
-              STOP="$STOP lexwebapp-local"
-              BUILD="$BUILD lexwebapp-local"
-              START="$START lexwebapp-local"
-            fi
+          STOP="" BUILD="" START=""
 
-            [ -n "$STOP" ] && $DC stop $STOP 2>/dev/null || true
-            [ -n "$STOP" ] && $DC rm -f $STOP 2>/dev/null || true
-            [ -n "$BUILD" ] && $DC build $BUILD
+          if echo "$SERVICES" | grep -q "backend"; then
+            STOP="$STOP app-local document-service-local"
+            BUILD="$BUILD app-local document-service-local migrate-local"
+            START="$START app-local document-service-local"
+          fi
+          if echo "$SERVICES" | grep -q "rada"; then
+            STOP="$STOP rada-mcp-app-local"
+            BUILD="$BUILD rada-mcp-app-local rada-db-init-local rada-migrate-local"
+            START="$START rada-mcp-app-local"
+          fi
+          if echo "$SERVICES" | grep -q "openreyestr"; then
+            STOP="$STOP app-openreyestr-local"
+            BUILD="$BUILD app-openreyestr-local migrate-openreyestr-local"
+            START="$START app-openreyestr-local"
+          fi
+          if echo "$SERVICES" | grep -q "frontend"; then
+            STOP="$STOP lexwebapp-local"
+            BUILD="$BUILD lexwebapp-local"
+            START="$START lexwebapp-local"
+          fi
 
-            # Run migrations (migrate-local may fail on dev — Spain tables absent; non-blocking)
-            if echo "$SERVICES" | grep -q "backend"; then
-              timeout 120 $DC up --abort-on-container-exit migrate-local || true
-            fi
-            if echo "$SERVICES" | grep -q "rada"; then
-              timeout 120 $DC up --abort-on-container-exit rada-db-init-local || true
-              timeout 120 $DC up --abort-on-container-exit rada-migrate-local || true
-            fi
-            if echo "$SERVICES" | grep -q "openreyestr"; then
-              timeout 120 $DC up --abort-on-container-exit migrate-openreyestr-local || true
-            fi
+          [ -n "$STOP" ] && $DC stop $STOP 2>/dev/null || true
+          [ -n "$STOP" ] && $DC rm -f $STOP 2>/dev/null || true
+          [ -n "$BUILD" ] && $DC build $BUILD
 
-            [ -n "$START" ] && $DC up -d --no-deps $START
+          # Run migrations (migrate-local may fail on dev — Spain tables absent; non-blocking)
+          if echo "$SERVICES" | grep -q "backend"; then
+            timeout 120 $DC up --abort-on-container-exit migrate-local || true
+          fi
+          if echo "$SERVICES" | grep -q "rada"; then
+            timeout 120 $DC up --abort-on-container-exit rada-db-init-local || true
+            timeout 120 $DC up --abort-on-container-exit rada-migrate-local || true
+          fi
+          if echo "$SERVICES" | grep -q "openreyestr"; then
+            timeout 120 $DC up --abort-on-container-exit migrate-openreyestr-local || true
+          fi
 
-            # Always recreate nginx after any deploy
-            $DC up -d --force-recreate --no-deps nginx-local
+          [ -n "$START" ] && $DC up -d --no-deps $START
 
-            docker image prune -f || true
-          DEPLOY_EOF
+          # Always recreate nginx after any deploy
+          $DC up -d --force-recreate --no-deps nginx-local
+
+          docker image prune -f || true
 
       - name: Health check
+        env:
+          SERVICES: ${{ steps.services.outputs.list }}
         run: |
-          SSH_CMD="ssh -i ~/.ssh/dev_key -o StrictHostKeyChecking=accept-new ${{ env.DEV_USER }}@${{ env.DEV_HOST }}"
-
           FAILED=false
 
           wait_healthy() {
@@ -303,7 +285,7 @@ jobs:
             local elapsed=0
             echo "Waiting for $name ($container)..."
             while [ $elapsed -lt $max_wait ]; do
-              status=$($SSH_CMD "docker inspect --format='{{.State.Health.Status}}' $container 2>/dev/null || echo not_found")
+              status=$(docker inspect --format='{{.State.Health.Status}}' "$container" 2>/dev/null || echo not_found)
               case "$status" in
                 healthy) echo "✓ $name: healthy (${elapsed}s)"; return 0 ;;
                 unhealthy) echo "✗ $name: unhealthy"; FAILED=true; return 1 ;;
@@ -314,18 +296,18 @@ jobs:
             FAILED=true
           }
 
-          if [ "${{ env.BACKEND_CHANGED }}" = "true" ]; then
+          if echo "$SERVICES" | grep -q "backend"; then
             wait_healthy "Backend" "secondlayer-app-local" 180
             wait_healthy "Document Service" "document-service-local" 120
           fi
-          [ "${{ env.RADA_CHANGED }}" = "true" ] && wait_healthy "RADA" "rada-mcp-app-local" 120
-          [ "${{ env.OPENREYESTR_CHANGED }}" = "true" ] && wait_healthy "OpenReyestr" "openreyestr-app-local" 120
-          [ "${{ env.FRONTEND_CHANGED }}" = "true" ] && wait_healthy "Frontend" "lexwebapp-local" 60
+          echo "$SERVICES" | grep -q "rada" && wait_healthy "RADA" "rada-mcp-app-local" 120
+          echo "$SERVICES" | grep -q "openreyestr" && wait_healthy "OpenReyestr" "openreyestr-app-local" 120
+          echo "$SERVICES" | grep -q "frontend" && wait_healthy "Frontend" "lexwebapp-local" 60
 
-          # Verify dev is reachable via HTTP (self-signed cert on 443)
+          # Verify dev is reachable locally (self-signed cert on 443)
           for i in 1 2 3 4 5; do
-            curl -skf --max-time 10 "https://${{ env.DEV_HOST }}/health" > /dev/null 2>&1 && {
-              echo "✓ dev VM reachable"
+            curl -skf --max-time 10 "https://localhost/health" > /dev/null 2>&1 && {
+              echo "✓ dev nginx reachable"
               break
             }
             echo "Attempt $i: dev not reachable yet, retrying..."
