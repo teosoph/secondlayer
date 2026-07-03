@@ -282,7 +282,9 @@ const FTS_CANDIDATE_CAP = 2000;
 // caps the worst case; on timeout we return EMPTY so the caller's relax/hybrid fallback
 // takes over instead of surfacing an error (the FTS leg returning 0 → hybrid is an
 // already-supported path). Must comfortably clear the capped query (sub-second on prod).
-const FTS_STATEMENT_TIMEOUT_MS = 8000;
+// Env-tunable: environments that read EDRSR over a remote link (dev → prod via tunnel)
+// need more headroom than the co-located prod default.
+const FTS_STATEMENT_TIMEOUT_MS = parseInt(process.env.EDRSR_FTS_TIMEOUT_MS || '8000', 10);
 
 export class EdsrFtsService {
   private edsrCache: EdsrCacheService | null = null;
