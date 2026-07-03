@@ -9,6 +9,7 @@ import { toastT } from '../../i18n/toast-i18n';
 // Validate API URL against allowed origins
 const ALLOWED_API_ORIGINS = [
   'https://legal.org.ua',
+  'https://dev.legal.org.ua',
   'https://local.legal.org.ua',
   'https://stage.legal.org.ua',
   'http://localhost:3000',

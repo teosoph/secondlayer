@@ -32,6 +32,9 @@ services:
       NEO4J_USER: neo4j
       NEO4J_PASSWORD: ${NEO4J_PASSWORD}
       NEO4J_DATABASE: neo4j
+      # EDRSR (edrsr_documents/courts/parties) читаем с прода (readonly) через WireGuard —
+      # локальная Postgres на dev VM пустая по этим таблицам. См. EDRSR_DATABASE_URL в .env.local
+      EDRSR_DATABASE_URL: ${EDRSR_DATABASE_URL}
     deploy:
       resources:
         limits:

@@ -913,6 +913,8 @@ services:
       - ./nginx/local-docker.conf:/etc/nginx/conf.d/default.conf:ro
       - ./nginx/certs:/etc/nginx/certs:ro
       - certbot_webroot:/var/www/certbot:ro
+      - /etc/letsencrypt/live/dev.legal.org.ua:/etc/letsencrypt/live/dev.legal.org.ua:ro
+      - /etc/letsencrypt/archive/dev.legal.org.ua:/etc/letsencrypt/archive/dev.legal.org.ua:ro
     depends_on:
       app-local:
         condition: service_healthy

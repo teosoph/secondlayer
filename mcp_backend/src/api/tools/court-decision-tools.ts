@@ -37,6 +37,12 @@ export class CourtDecisionTools extends BaseToolHandler {
     super();
   }
 
+  /** Pool for edrsr_* table queries: the dedicated EDRSR pool when EDRSR_DATABASE_URL is
+   *  configured (e.g. dev VM reading EDRSR from prod), otherwise the main app pool. */
+  private get edrsrDb(): any {
+    return this.ftsService?.pool ?? this.db;
+  }
+
   getToolDefinitions(): ToolDefinition[] {
     return [
       {
@@ -385,14 +391,14 @@ total_resolved_links=0 означає відсутність даних граф
       throw new Error('Provide doc_id (preferred) or case_number');
     }
 
-    if (!this.db) {
+    if (!this.edrsrDb) {
       return this.wrapError('Database not configured');
     }
 
     let row: any = null;
 
     if (docId) {
-      const result = await this.db.query(`
+      const result = await this.edrsrDb.query(`
         SELECT
           d.doc_id, d.cause_num, d.judge, d.court_code, d.justice_kind,
           d.judgment_code, d.category_code, d.adjudication_date, d.receipt_date,
@@ -407,7 +413,7 @@ total_resolved_links=0 означає відсутність даних граф
         row = result.rows[0];
       } else {
         // Try fulltext-only
-        const ftResult = await this.db.query(
+        const ftResult = await this.edrsrDb.query(
           `SELECT doc_id, full_text FROM edrsr_fulltext WHERE doc_id = $1`, [docId]
         );
         if (ftResult.rows.length > 0) {
@@ -416,7 +422,7 @@ total_resolved_links=0 означає відсутність даних граф
       }
     } else if (caseNumber) {
       // Find most recent decision for this case number
-      const result = await this.db.query(`
+      const result = await this.edrsrDb.query(`
         SELECT
           d.doc_id, d.cause_num, d.judge, d.court_code, d.justice_kind,
           d.judgment_code, d.category_code, d.adjudication_date, d.receipt_date,
@@ -509,11 +515,11 @@ total_resolved_links=0 означає відсутність даних граф
   };
 
   private async lookupName(table: string, idColumn: string, id: number): Promise<string | null> {
-    if (!this.db) return null;
+    if (!this.edrsrDb) return null;
     const allowed = CourtDecisionTools.ALLOWED_LOOKUP_TABLES[table];
     if (!allowed || !allowed.has(idColumn)) return null;
     try {
-      const result = await this.db.query(`SELECT name FROM ${table} WHERE ${idColumn} = $1 LIMIT 1`, [id]);
+      const result = await this.edrsrDb.query(`SELECT name FROM ${table} WHERE ${idColumn} = $1 LIMIT 1`, [id]);
       return result.rows.length > 0 ? result.rows[0].name : null;
     } catch {
       return null;
@@ -530,7 +536,7 @@ total_resolved_links=0 означає відсутність даних граф
       throw new Error('case_number parameter is required');
     }
 
-    if (!this.db) {
+    if (!this.edrsrDb) {
       throw new Error('Database connection not available for get_case_documents_chain');
     }
 
@@ -566,7 +572,7 @@ total_resolved_links=0 означає відсутність даних граф
       LIMIT $2
     `;
 
-    const result = await this.db.query(sql, [caseVariations, maxDocs]);
+    const result = await this.edrsrDb.query(sql, [caseVariations, maxDocs]);
     const rows = result.rows || [];
 
     logger.info('[MCP Tool] get_case_documents_chain DB result', {
@@ -593,7 +599,7 @@ total_resolved_links=0 означає відсутність даних граф
     const judgmentMap = new Map<number, string>();
     if (judgmentCodes.size > 0) {
       try {
-        const jfResult = await this.db.query(
+        const jfResult = await this.edrsrDb.query(
           'SELECT judgment_code, name FROM edrsr_judgment_forms WHERE judgment_code = ANY($1)',
           [Array.from(judgmentCodes)]
         );
@@ -1005,9 +1011,9 @@ total_resolved_links=0 означає відсутність даних граф
   private async lookupCourtNames(codes: number[]): Promise<Map<number, string>> {
     const map = new Map<number, string>();
     const ids = [...new Set(codes.filter((c): c is number => typeof c === 'number'))];
-    if (ids.length === 0 || !this.db) return map;
+    if (ids.length === 0 || !this.edrsrDb) return map;
     try {
-      const res = await this.db.query(`SELECT court_code, name FROM edrsr_courts WHERE court_code = ANY($1)`, [ids]);
+      const res = await this.edrsrDb.query(`SELECT court_code, name FROM edrsr_courts WHERE court_code = ANY($1)`, [ids]);
       for (const row of res.rows) map.set(row.court_code, row.name);
     } catch { /* non-critical */ }
     return map;

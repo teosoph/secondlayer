@@ -317,6 +317,13 @@ export class EdsrFtsService {
     return this.dedicatedPool ?? dbPool;
   }
 
+  /** Exposes the dedicated EDRSR pool (if EDRSR_DATABASE_URL is set) so other services
+   *  that query edrsr_* tables directly can route to the same source, instead of only
+   *  queries made through this service. Null when no dedicated pool is configured. */
+  get pool(): Pool | null {
+    return this.dedicatedPool;
+  }
+
   // LEXAI-1760: years whose plaintiff/defendant spans have been extracted into edrsr_parties
   // (read from edrsr_parties_coverage). When a count's date range falls entirely inside these
   // years, countByParty serves it from the indexed parties table instead of the full-text
