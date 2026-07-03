@@ -10,14 +10,22 @@
 --   mvs_missing_persons, mvs_wanted_vehicles, nazk_corruption.
 
 -- ── Unique indexes backing ON CONFLICT ──────────────────────────────────
-CREATE UNIQUE INDEX IF NOT EXISTS opendata_missing_persons_source_id_uniq
-  ON opendata_missing_persons(source_id);
-
-CREATE UNIQUE INDEX IF NOT EXISTS opendata_wanted_vehicles_natural_uniq
-  ON opendata_wanted_vehicles(vehicle_number, body_number);
-
-CREATE UNIQUE INDEX IF NOT EXISTS opendata_corruption_record_id_uniq
-  ON opendata_corruption(record_id);
+-- Tables opendata_* were created outside migrations (manual/prod-only), so each
+-- index is guarded — on a fresh database the statement is skipped.
+DO $$ BEGIN
+  IF to_regclass('opendata_missing_persons') IS NOT NULL THEN
+    CREATE UNIQUE INDEX IF NOT EXISTS opendata_missing_persons_source_id_uniq
+      ON opendata_missing_persons(source_id);
+  END IF;
+  IF to_regclass('opendata_wanted_vehicles') IS NOT NULL THEN
+    CREATE UNIQUE INDEX IF NOT EXISTS opendata_wanted_vehicles_natural_uniq
+      ON opendata_wanted_vehicles(vehicle_number, body_number);
+  END IF;
+  IF to_regclass('opendata_corruption') IS NOT NULL THEN
+    CREATE UNIQUE INDEX IF NOT EXISTS opendata_corruption_record_id_uniq
+      ON opendata_corruption(record_id);
+  END IF;
+END $$;
 
 -- ── mvs_missing_persons ────────────────────────────────────────────────
 UPDATE import_source_catalog

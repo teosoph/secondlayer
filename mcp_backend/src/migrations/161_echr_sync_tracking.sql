@@ -18,5 +18,11 @@ CREATE INDEX IF NOT EXISTS idx_echr_sync_log_country ON echr_sync_log(country_co
 CREATE INDEX IF NOT EXISTS idx_echr_sync_log_status ON echr_sync_log(status);
 
 -- 2. Performance indexes on echr_cases
-CREATE INDEX IF NOT EXISTS idx_echr_cases_respondent ON echr_cases(respondent);
-CREATE INDEX IF NOT EXISTS idx_echr_cases_kp_date ON echr_cases(kp_date);
+-- echr_cases lives in the separate hudoc database on some environments — guard
+-- so a fresh main database doesn't abort the migration run.
+DO $$ BEGIN
+  IF to_regclass('echr_cases') IS NOT NULL THEN
+    CREATE INDEX IF NOT EXISTS idx_echr_cases_respondent ON echr_cases(respondent);
+    CREATE INDEX IF NOT EXISTS idx_echr_cases_kp_date ON echr_cases(kp_date);
+  END IF;
+END $$;

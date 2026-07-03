@@ -54,9 +54,16 @@ CREATE INDEX IF NOT EXISTS idx_us_court_opinions_length ON us_court_opinions(tex
 CREATE INDEX IF NOT EXISTS idx_us_court_opinions_reporter ON us_court_opinions(reporter_series);
 
 -- ── Fixes (run after tables exist) ─────────────────────────────────
+-- Tables opensanctions_entities / us_cfpb_complaints / us_fec_candidates were
+-- created outside migrations (importer-managed), so each fix is guarded with
+-- to_regclass() — on a fresh database the block is skipped.
 
 -- 1. OpenSanctions: FTS index on name
-CREATE INDEX IF NOT EXISTS idx_opensanctions_name_fts ON opensanctions_entities USING gin(to_tsvector('simple', name));
+DO $$ BEGIN
+  IF to_regclass('opensanctions_entities') IS NOT NULL THEN
+    CREATE INDEX IF NOT EXISTS idx_opensanctions_name_fts ON opensanctions_entities USING gin(to_tsvector('simple', name));
+  END IF;
+END $$;
 
 -- 2. Court opinions: reporter_series column + populate
 ALTER TABLE us_court_opinions ADD COLUMN IF NOT EXISTS reporter_series TEXT;
@@ -64,28 +71,36 @@ DROP INDEX IF EXISTS idx_us_court_opinions_created;
 UPDATE us_court_opinions SET reporter_series = split_part(id, '/', 1) WHERE reporter_series IS NULL;
 
 -- 3. CFPB: normalized product taxonomy
-ALTER TABLE us_cfpb_complaints ADD COLUMN IF NOT EXISTS product_normalized TEXT;
-UPDATE us_cfpb_complaints SET product_normalized = CASE
-    WHEN product IN ('Credit reporting, credit repair services, or other personal consumer reports',
-                     'Credit reporting or other personal consumer reports')
-        THEN 'Credit reporting'
-    WHEN product IN ('Credit card or prepaid card', 'Credit card', 'Prepaid card')
-        THEN 'Credit card / prepaid'
-    WHEN product IN ('Payday loan, title loan, personal loan, or advance',
-                     'Payday loan, title loan, or personal loan', 'Payday loan')
-        THEN 'Payday / personal loan'
-    WHEN product IN ('Money transfer, virtual currency, or money service',
-                     'Money transfers', 'Virtual currency')
-        THEN 'Money transfer / crypto'
-    WHEN product IN ('Checking or savings account', 'Bank account or service')
-        THEN 'Bank account'
-    ELSE product
-END
-WHERE product_normalized IS NULL;
-CREATE INDEX IF NOT EXISTS idx_us_cfpb_product_norm ON us_cfpb_complaints(product_normalized);
+DO $$ BEGIN
+  IF to_regclass('us_cfpb_complaints') IS NOT NULL THEN
+    ALTER TABLE us_cfpb_complaints ADD COLUMN IF NOT EXISTS product_normalized TEXT;
+    UPDATE us_cfpb_complaints SET product_normalized = CASE
+        WHEN product IN ('Credit reporting, credit repair services, or other personal consumer reports',
+                         'Credit reporting or other personal consumer reports')
+            THEN 'Credit reporting'
+        WHEN product IN ('Credit card or prepaid card', 'Credit card', 'Prepaid card')
+            THEN 'Credit card / prepaid'
+        WHEN product IN ('Payday loan, title loan, personal loan, or advance',
+                         'Payday loan, title loan, or personal loan', 'Payday loan')
+            THEN 'Payday / personal loan'
+        WHEN product IN ('Money transfer, virtual currency, or money service',
+                         'Money transfers', 'Virtual currency')
+            THEN 'Money transfer / crypto'
+        WHEN product IN ('Checking or savings account', 'Bank account or service')
+            THEN 'Bank account'
+        ELSE product
+    END
+    WHERE product_normalized IS NULL;
+    CREATE INDEX IF NOT EXISTS idx_us_cfpb_product_norm ON us_cfpb_complaints(product_normalized);
+  END IF;
+END $$;
 
 -- 4. FEC candidates: fix garbled election years
-UPDATE us_fec_candidates SET election_year = NULL WHERE election_year > 2030;
+DO $$ BEGIN
+  IF to_regclass('us_fec_candidates') IS NOT NULL THEN
+    UPDATE us_fec_candidates SET election_year = NULL WHERE election_year > 2030;
+  END IF;
+END $$;
 
 -- 5. OFAC standalone: deprecate in catalog
 UPDATE import_source_catalog SET enabled = false WHERE name = 'us_ofac_sdn';
