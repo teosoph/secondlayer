@@ -35,6 +35,13 @@ services:
       # EDRSR (edrsr_documents/courts/parties) читаем с прода (readonly) через WireGuard —
       # локальная Postgres на dev VM пустая по этим таблицам. См. EDRSR_DATABASE_URL в .env.local
       EDRSR_DATABASE_URL: ${EDRSR_DATABASE_URL}
+      # Контентные чтения (legislation, редакции, opendata) — тот же прод-PG read-only
+      CONTENT_DATABASE_URL: ${CONTENT_DATABASE_URL:-}
+      # LLM: только Bedrock (IAM-юзер bedrock-dev, invoke-only), без прямых OpenAI/Anthropic
+      LLM_PROVIDER_STRATEGY: bedrock-first
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      AWS_REGION: ${AWS_REGION:-eu-central-1}
     deploy:
       resources:
         limits:

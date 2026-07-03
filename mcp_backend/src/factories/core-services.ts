@@ -1,4 +1,5 @@
-import { Database } from '../database/database.js';
+import { Database, ContentDatabase } from '../database/database.js';
+import { logger } from '../utils/logger.js';
 import { DocumentService } from '../services/document-service.js';
 import { EdsrLocalAdapter } from '../adapters/edrsr-local-adapter.js';
 import { QueryPlanner } from '../services/query-planner.js';
@@ -20,6 +21,12 @@ import { EchrHudocSyncService } from '../services/echr-hudoc-sync-service.js';
 
 export interface BackendCoreServices {
   db: Database;
+  /**
+   * Pool for legal-content reads (legislation, EDRSR, editions). Separate pool
+   * when CONTENT_DATABASE_URL is set (dev reads prod content read-only via
+   * tunnel), otherwise the same instance as `db`.
+   */
+  contentDb: Database;
   documentService: DocumentService;
   queryPlanner: QueryPlanner;
   sectionizer: SemanticSectionizer;
@@ -43,6 +50,11 @@ export interface BackendCoreServices {
 
 export function createBackendCoreServices(): BackendCoreServices {
   const db = new Database();
+  let contentDb: Database = db;
+  if (process.env.CONTENT_DATABASE_URL) {
+    contentDb = new ContentDatabase(process.env.CONTENT_DATABASE_URL);
+    logger.info('Content database split enabled: legal-content reads use CONTENT_DATABASE_URL');
+  }
   const documentService = new DocumentService(db);
   const llmAdapter = new LLMAdapter(getLLMManager());
   const queryPlanner = new QueryPlanner(llmAdapter);
@@ -58,7 +70,7 @@ export function createBackendCoreServices(): BackendCoreServices {
   const citationValidator = new CitationValidator(db, shepardizationService);
   const citationGraphService = new CitationGraphService();
   const hallucinationGuard = new HallucinationGuard(db, shepardizationService);
-  const legislationService = new LegislationService(db, embeddingService, undefined, llmAdapter);
+  const legislationService = new LegislationService(contentDb, embeddingService, undefined, llmAdapter);
   const legislationTools = new LegislationTools(legislationService, undefined, patternStore);
   const reyestrDownloadService = new ReyestrDownloadService(db, documentService, sectionizer, embeddingService);
   const importTaskService = new ImportTaskService(db);
@@ -78,6 +90,7 @@ export function createBackendCoreServices(): BackendCoreServices {
 
   return {
     db,
+    contentDb,
     documentService,
     queryPlanner,
     sectionizer,

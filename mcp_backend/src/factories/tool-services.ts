@@ -115,7 +115,7 @@ export function createToolServices(
     coreServices.sectionizer,
     coreServices.embeddingService,
     coreServices.patternStore,
-    coreServices.db,
+    coreServices.contentDb,
     edsrFtsService,
     coreServices.citationGraphService
   ));
@@ -141,7 +141,7 @@ export function createToolServices(
     coreServices.patternStore,
     llmAdapter,
     edsrFtsService,
-    coreServices.db,
+    coreServices.contentDb,
     edsrVectorizer,
   ));
   toolRegistry.registerHandler(new LegalAdviceTools(
@@ -154,31 +154,31 @@ export function createToolServices(
     coreServices.citationValidator,
     coreServices.shepardizationService,
     llmAdapter,
-    coreServices.db,
+    coreServices.contentDb,
     edsrFtsService,
     coreServices.citationGraphService
   ));
   toolRegistry.registerHandler(new CourtSessionTools(
     coreServices.zoSessionsAdapter,
-    coreServices.db
+    coreServices.contentDb
   ));
   toolRegistry.registerHandler(new LegalActsTools(coreServices.zoLegalActsAdapter));
   toolRegistry.registerHandler(new ECHRPracticeTools(coreServices.zoECHRAdapter));
-  toolRegistry.registerHandler(new CourtStatusTools(coreServices.db));
-  toolRegistry.registerHandler(new RegistrySearchTool(coreServices.db));
-  toolRegistry.registerHandler(new AnalyzeDataTool(coreServices.db));
+  toolRegistry.registerHandler(new CourtStatusTools(coreServices.contentDb));
+  toolRegistry.registerHandler(new RegistrySearchTool(coreServices.contentDb));
+  toolRegistry.registerHandler(new AnalyzeDataTool(coreServices.contentDb));
   // Bespoke tools with non-parametric query patterns
-  toolRegistry.registerHandler(new OpenDataTools(coreServices.db));
-  toolRegistry.registerHandler(new SpendingTools(coreServices.db));
-  toolRegistry.registerHandler(new OpenDataRegistriesTools(coreServices.db));
-  toolRegistry.registerHandler(new Tier1OpenDataTools(coreServices.db));
-  toolRegistry.registerHandler(new EdsrExtendedTools(coreServices.db));
-  toolRegistry.registerHandler(new IndiaCourtTools(coreServices.db));
+  toolRegistry.registerHandler(new OpenDataTools(coreServices.contentDb));
+  toolRegistry.registerHandler(new SpendingTools(coreServices.contentDb));
+  toolRegistry.registerHandler(new OpenDataRegistriesTools(coreServices.contentDb));
+  toolRegistry.registerHandler(new Tier1OpenDataTools(coreServices.contentDb));
+  toolRegistry.registerHandler(new EdsrExtendedTools(coreServices.contentDb));
+  toolRegistry.registerHandler(new IndiaCourtTools(coreServices.contentDb));
   toolRegistry.registerHandler(new DecisionLayerTools(llmAdapter));
 
   // EDRSR unified search (structured + FTS + hybrid + semantic in one tool)
   // Reuses the edsrVectorizer instance created above.
-  const edsrUnifiedSearch = new EdsrUnifiedSearchTool(coreServices.db, edsrFtsService, edsrVectorizer);
+  const edsrUnifiedSearch = new EdsrUnifiedSearchTool(coreServices.contentDb, edsrFtsService, edsrVectorizer);
   edsrUnifiedSearch.setResultFilter(new SearchResultFilter(llmAdapter));
   edsrUnifiedSearch.setQueryReformulator(new QueryReformulator(llmAdapter));
   toolRegistry.registerHandler(edsrUnifiedSearch);
