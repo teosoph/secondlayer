@@ -37,7 +37,7 @@ services:
       EDRSR_DATABASE_URL: ${EDRSR_DATABASE_URL}
       # FTS через туннель медленнее, чем co-located prod: дефолтных 8s не хватает →
       # пустые результаты и деградация ответов чата. Даём запас.
-      EDRSR_FTS_TIMEOUT_MS: "12000"
+      EDRSR_FTS_TIMEOUT_MS: "15000"
       # Контентные чтения (legislation, редакции, opendata) — тот же прод-PG read-only
       CONTENT_DATABASE_URL: ${CONTENT_DATABASE_URL:-}
       # LLM: только Bedrock (IAM-юзер bedrock-dev, invoke-only), без прямых OpenAI/Anthropic
