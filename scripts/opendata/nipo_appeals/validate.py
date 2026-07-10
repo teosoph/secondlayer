@@ -47,6 +47,10 @@ def validate(item: DecisionItem) -> Tuple[List[str], List[str]]:
             f"decision_text too short ({len(item.decision_text or '')} chars) — "
             "download or text extraction failed"
         )
+    elif "пеляційн" not in item.decision_text:
+        # content sanity: a PDF that never mentions the Appeals Chamber is a foreign
+        # document (e.g. AIPPI congress resolutions matched by a '*-RES-*' filename)
+        errors.append("decision_text lacks 'Апеляційна палата' marker — not a chamber decision?")
 
     for name, value in (("order_date", item.order_date), ("decision_date", item.decision_date)):
         if value and not _plausible_date(value):
