@@ -58,13 +58,19 @@
   <url>
     <loc>https://legal.org.ua/blog/paper-fewshot-degradation</loc>
     <lastmod>2026-05-14</lastmod>
-    <changefreq>weekly</changefreq>
+    <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
     <loc>https://legal.org.ua/blog/uk/paper-fewshot-degradation</loc>
     <lastmod>2026-05-14</lastmod>
-    <changefreq>weekly</changefreq>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://legal.org.ua/blog/ru/paper-fewshot-degradation</loc>
+    <lastmod>2026-05-14</lastmod>
+    <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
@@ -159,19 +165,19 @@
   </url>
   <url>
     <loc>https://legal.org.ua/blog/paper-mission-memory</loc>
-    <lastmod>2026-05-12</lastmod>
+    <lastmod>2026-05-14</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
     <loc>https://legal.org.ua/blog/uk/paper-mission-memory</loc>
-    <lastmod>2026-05-12</lastmod>
+    <lastmod>2026-05-14</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://legal.org.ua/blog/ru/paper-mission-memory</loc>
-    <lastmod>2026-05-12</lastmod>
+    <lastmod>2026-05-14</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
